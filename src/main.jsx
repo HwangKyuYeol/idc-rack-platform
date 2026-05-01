@@ -13,7 +13,12 @@ import './style.css';
 
 const U_COUNT = 42;
 const ROW_H = 22;
-const DEFAULT_RACKS = ['R1','R2','R3','R4'];
+const DEFAULT_RACKS = [
+  { id:'rack-1', name:'R1', zone:'운영', color:'#d9eaf7' },
+  { id:'rack-2', name:'R2', zone:'운영', color:'#d9eaf7' },
+  { id:'rack-3', name:'R3', zone:'백업', color:'#fce4d6' },
+  { id:'rack-4', name:'R4', zone:'보안', color:'#c6e0b4' },
+];
 
 const BASE_DB = [
   ['시스템','Dell','PowerEdge R640',1,120,280,550,'server',''],
@@ -56,6 +61,12 @@ function amp(w, v){ return (w / Math.max(Number(v)||220, 1)).toFixed(1); }
 function typeClass(type){ return {시스템:'system',네트워크:'network',보안:'security',스토리지:'storage',기타:'etc'}[type] || 'etc'; }
 function risk(rate){ return rate>1 ? ['초과','danger',AlertTriangle] : rate>=0.85 ? ['주의','warning',AlertTriangle] : ['안전','safe',CheckCircle2]; }
 function esc(v){ const s=String(v??''); return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s; }
+function rackNameOf(racks, rackId){
+  return racks.find(r => r.id === rackId)?.name || rackId;
+}
+function nextRackId(){
+  return `rack-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 function redundancyKey(item){
   return `${item.brand} ${item.model} ${item.label||item.model}`
@@ -114,7 +125,7 @@ function DeviceModal({device,onClose,onMove,racks}){
       </div>
       <div className="moveBox">
         <b>다른 Rack으로 이동</b>
-        <div>{racks.map(r=><button key={r} className="outline small" onClick={()=>onMove(device.uid,r)}>{r}</button>)}</div>
+        <div>{racks.map(r=><button key={r.id} className="outline small" onClick={()=>onMove(device.uid,r.id)}>{r.name}</button>)}</div>
       </div>
       <div className="modalNote"><Info size={16}/>전력값은 추정치입니다. 제조사 스펙과 PDU 실측값으로 최종 보정하세요.</div>
     </div>
@@ -125,8 +136,8 @@ function ReportPanel({rackStats, redundancy, thermal, pduWarnings}){
   return <section className="panel report">
     <h2><FileText size={17}/>자동 보고서 요약</h2>
     <div className="reportGrid">
-      <div><b>전력 초과 Rack</b><span>{rackStats.filter(x=>x.status==='초과').map(x=>x.rack).join(', ') || '없음'}</span></div>
-      <div><b>주의 Rack</b><span>{rackStats.filter(x=>x.status==='주의').map(x=>x.rack).join(', ') || '없음'}</span></div>
+      <div><b>전력 초과 Rack</b><span>{rackStats.filter(x=>x.status==='초과').map(x=>x.rackName).join(', ') || '없음'}</span></div>
+      <div><b>주의 Rack</b><span>{rackStats.filter(x=>x.status==='주의').map(x=>x.rackName).join(', ') || '없음'}</span></div>
       <div><b>이중화 위험</b><span>{redundancy.filter(x=>x.status!=='OK').length}건</span></div>
       <div><b>공기순환/발열</b><span>{thermal.length}건</span></div>
       <div><b>PDU 경고</b><span>{pduWarnings.length}건</span></div>
@@ -139,7 +150,7 @@ function App(){
   const rackRef=useRef(null), fileRef=useRef(null);
   const [catalog,setCatalog]=useState(BASE_DB);
   const [racks,setRacks]=useState(DEFAULT_RACKS);
-  const [activeRack,setActiveRack]=useState('R1');
+  const [activeRack,setActiveRack]=useState(DEFAULT_RACKS[0].id);
   const [items,setItems]=useState([]);
   const [query,setQuery]=useState(''), [filter,setFilter]=useState('전체'), [selectedId,setSelectedId]=useState(BASE_DB[0].id);
   const [startU,setStartU]=useState(41), [voltage,setVoltage]=useState(220), [contractKw,setContractKw]=useState(3.3), [pduAmp,setPduAmp]=useState(20);
@@ -156,12 +167,12 @@ function App(){
   const [avgTxt,avgCls,AvgIcon]=risk(totals.avg/contractW);
 
   const rackStats=useMemo(()=>racks.map(r=>{
-    const arr=items.filter(x=>x.rack===r);
+    const arr=items.filter(x=>x.rack===r.id);
     const avg=arr.reduce((a,x)=>a+x.avg,0), max=arr.reduce((a,x)=>a+x.max,0);
     const [status]=risk(avg/contractW);
     const aLoad=arr.reduce((a,x)=>a+(x.powerMode==='B'?0:x.powerMode==='A'?x.avg:(x.avg/2)),0);
     const bLoad=arr.reduce((a,x)=>a+(x.powerMode==='A'?0:x.powerMode==='B'?x.avg:(x.avg/2)),0);
-    return {rack:r,count:arr.length,avg,max,status,aLoad,bLoad};
+    return {rack:r.id,rackName:r.name,zone:r.zone,color:r.color,count:arr.length,avg,max,status,aLoad,bLoad};
   }),[items,racks,contractW]);
 
   const redundancy=useMemo(()=>{
@@ -176,16 +187,16 @@ function App(){
   const thermal=useMemo(()=>{
     const warns=[];
     racks.forEach(r=>{
-      const arr=items.filter(x=>x.rack===r).sort((a,b)=>b.startU-a.startU);
+      const arr=items.filter(x=>x.rack===r.id).sort((a,b)=>b.startU-a.startU);
       for(let i=0;i<arr.length-1;i++){
         const a=arr[i], b=arr[i+1];
         if((a.type==='시스템'||a.type==='스토리지')&&(b.type==='시스템'||b.type==='스토리지') && Math.abs((a.startU-a.u)-b.startU)<=1){
-          warns.push(`${r}: 고발열 장비 연속 배치 (${a.model} / ${b.model})`);
+          warns.push(`${r.name}: 고발열 장비 연속 배치 (${a.model} / ${b.model})`);
         }
       }
       arr.forEach(x=>{
-        if((x.type==='시스템'||x.type==='스토리지') && x.startU>30) warns.push(`${r}: ${x.model} 상단 배치 확인`);
-        if((x.type==='네트워크'||x.type==='보안') && x.startU<10) warns.push(`${r}: ${x.model} 하단 배치 확인`);
+        if((x.type==='시스템'||x.type==='스토리지') && x.startU>30) warns.push(`${r.name}: ${x.model} 상단 배치 확인`);
+        if((x.type==='네트워크'||x.type==='보안') && x.startU<10) warns.push(`${r.name}: ${x.model} 하단 배치 확인`);
       });
     });
     return [...new Set(warns)];
@@ -195,9 +206,9 @@ function App(){
     const limit=(+pduAmp||20)*(+voltage||220);
     return rackStats.flatMap(s=>{
       const w=[];
-      if(s.aLoad>limit) w.push(`${s.rack}: A PDU ${amp(s.aLoad,voltage)}A 초과`);
-      if(s.bLoad>limit) w.push(`${s.rack}: B PDU ${amp(s.bLoad,voltage)}A 초과`);
-      if(s.avg>limit) w.push(`${s.rack}: 장애 시 단일 PDU ${amp(s.avg,voltage)}A 예상`);
+      if(s.aLoad>limit) w.push(`${s.rackName}: A PDU ${amp(s.aLoad,voltage)}A 초과`);
+      if(s.bLoad>limit) w.push(`${s.rackName}: B PDU ${amp(s.bLoad,voltage)}A 초과`);
+      if(s.avg>limit) w.push(`${s.rackName}: 장애 시 단일 PDU ${amp(s.avg,voltage)}A 예상`);
       return w;
     });
   },[rackStats,pduAmp,voltage]);
@@ -231,7 +242,7 @@ function App(){
     });
     const next=[];
     sorted.forEach((dev,idx)=>{
-      const targetRack = racks[idx % racks.length];
+      const targetRack = racks[idx % racks.length].id;
       const tempItems = [...next];
       let start=null, bestRack=targetRack;
       for(const r of racks){
@@ -265,8 +276,62 @@ function App(){
   }
 
   function addRack(){
-    const n = `R${racks.length+1}`;
-    setRacks(p=>[...p,n]); setActiveRack(n);
+    const id = nextRackId();
+    const rack = { id, name:`R${racks.length+1}`, zone:'운영', color:'#d9eaf7' };
+    setRacks(p=>[...p,rack]);
+    setActiveRack(id);
+  }
+
+  function removeRack(rackId){
+    if(racks.length <= 1){
+      alert('최소 1개의 Rack은 있어야 합니다.');
+      return;
+    }
+    const rack = racks.find(r=>r.id===rackId);
+    const count = items.filter(x=>x.rack===rackId).length;
+    if(count > 0 && !confirm(`${rack?.name || rackId}에 장비 ${count}대가 있습니다. 삭제하면 해당 장비도 삭제됩니다. 계속할까요?`)){
+      return;
+    }
+    const nextRacks = racks.filter(r=>r.id!==rackId);
+    setItems(prev=>prev.filter(x=>x.rack!==rackId));
+    setRacks(nextRacks);
+    if(activeRack === rackId){
+      setActiveRack(nextRacks[0].id);
+    }
+  }
+
+  function renameRack(rackId, name){
+    const clean = name.trim();
+    if(!clean) return;
+    setRacks(prev=>prev.map(r=>r.id===rackId ? {...r, name:clean} : r));
+  }
+
+  function updateRackMeta(rackId, patch){
+    setRacks(prev=>prev.map(r=>r.id===rackId ? {...r, ...patch} : r));
+  }
+
+  function duplicateRack(rackId){
+    const source = racks.find(r=>r.id===rackId);
+    if(!source) return;
+    const newId = nextRackId();
+    const copyRack = {...source, id:newId, name:`${source.name}-COPY`};
+    const copiedItems = items
+      .filter(x=>x.rack===rackId)
+      .map(x=>({...x, uid:crypto.randomUUID(), rack:newId}));
+    setRacks(prev=>[...prev, copyRack]);
+    setItems(prev=>[...prev, ...copiedItems]);
+    setActiveRack(newId);
+  }
+
+  function moveRack(rackId, direction){
+    setRacks(prev=>{
+      const idx = prev.findIndex(r=>r.id===rackId);
+      const nextIdx = idx + direction;
+      if(idx < 0 || nextIdx < 0 || nextIdx >= prev.length) return prev;
+      const copy = [...prev];
+      [copy[idx], copy[nextIdx]] = [copy[nextIdx], copy[idx]];
+      return copy;
+    });
   }
 
   function importCsv(file){
@@ -294,13 +359,13 @@ function App(){
   function loadProject(file){
     if(!file)return;
     const reader=new FileReader();
-    reader.onload=()=>{try{const d=JSON.parse(reader.result); setRacks(d.racks||DEFAULT_RACKS); setItems(d.items||[]); setCatalog(d.catalog||BASE_DB); setContractKw(d.contractKw||3.3); setVoltage(d.voltage||220); setPduAmp(d.pduAmp||20);}catch{alert('프로젝트 파일을 읽을 수 없습니다.');}};
+    reader.onload=()=>{try{const d=JSON.parse(reader.result); setRacks((d.racks||DEFAULT_RACKS).map((r,i)=>typeof r==='string'?{id:`rack-${i+1}`,name:r,zone:'운영',color:'#d9eaf7'}:r)); setItems(d.items||[]); setCatalog(d.catalog||BASE_DB); setContractKw(d.contractKw||3.3); setVoltage(d.voltage||220); setPduAmp(d.pduAmp||20);}catch{alert('프로젝트 파일을 읽을 수 없습니다.');}};
     reader.readAsText(file);
   }
 
   function download(content,name,type){const b=content instanceof Blob?content:new Blob([content],{type}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; a.click(); URL.revokeObjectURL(u);}
   function exportCsv(){
-    const rows=[...items].sort((a,b)=>a.rack.localeCompare(b.rack)||b.startU-a.startU).map(x=>[x.rack,x.startU,x.u,x.type,x.brand,x.model,x.min,x.avg,x.max,x.powerMode,x.imageUrl||''].map(esc).join(',')).join('\n');
+    const rows=[...items].sort((a,b)=>a.rack.localeCompare(b.rack)||b.startU-a.startU).map(x=>[rackNameOf(racks,x.rack),x.startU,x.u,x.type,x.brand,x.model,x.min,x.avg,x.max,x.powerMode,x.imageUrl||''].map(esc).join(',')).join('\n');
     download(`\ufeffRack,U,Size,Type,Brand,Model,Min W,Avg W,Max W,Power,Image URL\n${rows}`,`idc_room_report.csv`,'text/csv;charset=utf-8');
   }
   async function exportPng(){
@@ -312,7 +377,7 @@ function App(){
     const pdf=new jsPDF('l','mm','a4'); const img=canvas.toDataURL('image/png'); const w=277,h=canvas.height*w/canvas.width;
     pdf.text('IDC Rack Room Report',10,12); pdf.addImage(img,'PNG',10,18,w,Math.min(h,180));
     pdf.addPage(); pdf.setFontSize(14); pdf.text('Auto Analysis Summary',10,15); pdf.setFontSize(10);
-    const lines=[...rackStats.map(s=>`${s.rack}: ${s.count} devices / AVG ${kw(s.avg)}kW / A ${amp(s.aLoad,voltage)}A / B ${amp(s.bLoad,voltage)}A / ${s.status}`),'',...redundancy.map(x=>`Redundancy: ${x.key} / ${x.racks} / ${x.status}`),'',...thermal.map(x=>`Thermal: ${x}`),'',...pduWarnings.map(x=>`PDU: ${x}`)];
+    const lines=[...rackStats.map(s=>`${s.rackName}: ${s.count} devices / AVG ${kw(s.avg)}kW / A ${amp(s.aLoad,voltage)}A / B ${amp(s.bLoad,voltage)}A / ${s.status}`),'',...redundancy.map(x=>`Redundancy: ${x.key} / ${x.racks} / ${x.status}`),'',...thermal.map(x=>`Thermal: ${x}`),'',...pduWarnings.map(x=>`PDU: ${x}`)];
     lines.slice(0,38).forEach((l,i)=>pdf.text(l,10,25+i*6));
     pdf.save(`idc_room_report.pdf`);
   }
@@ -336,19 +401,35 @@ function App(){
 
     <main>
       <section className="panel rackPanel">
-        <div className="controls"><input value={activeRack} onChange={e=>setActiveRack(e.target.value)}/><label>전압<input type="number" value={voltage} onChange={e=>setVoltage(+e.target.value)}/>V</label><label>계약<input type="number" step="0.1" value={contractKw} onChange={e=>setContractKw(+e.target.value)}/>kW</label><label>PDU<input type="number" value={pduAmp} onChange={e=>setPduAmp(+e.target.value)}/>A</label><label><input type="checkbox" checked={gap} onChange={e=>setGap(e.target.checked)}/>1U 공기층</label></div>
+        <div className="controls"><input value={rackNameOf(racks, activeRack)} onChange={e=>renameRack(activeRack, e.target.value)} title="선택한 Rack 이름 변경"/><label>전압<input type="number" value={voltage} onChange={e=>setVoltage(+e.target.value)}/>V</label><label>계약<input type="number" step="0.1" value={contractKw} onChange={e=>setContractKw(+e.target.value)}/>kW</label><label>PDU<input type="number" value={pduAmp} onChange={e=>setPduAmp(+e.target.value)}/>A</label><label><input type="checkbox" checked={gap} onChange={e=>setGap(e.target.checked)}/>1U 공기층</label></div>
 
-        <div className="rackSwitcher">{racks.map(r=><RackMini key={r} rack={r} active={activeRack===r} items={items.filter(x=>x.rack===r)} contractW={contractW} onClick={()=>setActiveRack(r)}/>)}<button className="addRack" onClick={addRack}><Plus size={16}/>Rack 추가</button></div>
+        <div className="rackSwitcher">
+          {racks.map((r,idx)=><div className="rackCardWrap" key={r.id} style={{'--rack-color':r.color}}>
+            <RackMini rack={r.name} active={activeRack===r.id} items={items.filter(x=>x.rack===r.id)} contractW={contractW} onClick={()=>setActiveRack(r.id)}/>
+            <div className="rackTools">
+              <button title="왼쪽으로 이동" onClick={()=>moveRack(r.id,-1)} disabled={idx===0}>←</button>
+              <button title="오른쪽으로 이동" onClick={()=>moveRack(r.id,1)} disabled={idx===racks.length-1}>→</button>
+              <button title="복사" onClick={()=>duplicateRack(r.id)}><Copy size={12}/></button>
+              <button title="삭제" className="dangerMini" onClick={()=>removeRack(r.id)}>×</button>
+            </div>
+            <div className="rackMeta">
+              <input value={r.name} onChange={e=>renameRack(r.id,e.target.value)} title="Rack 이름"/>
+              <input value={r.zone} onChange={e=>updateRackMeta(r.id,{zone:e.target.value})} title="Zone"/>
+              <input type="color" value={r.color} onChange={e=>updateRackMeta(r.id,{color:e.target.value})} title="Rack 색상"/>
+            </div>
+          </div>)}
+          <button className="addRack" onClick={addRack}><Plus size={16}/>Rack 추가</button>
+        </div>
         <div className="rackToolbar"><button className="outline" onClick={autoPlaceAll}><MoveDown size={16}/>전체 Rack 자동 최적 배치 AI</button><button className="outline" onClick={()=>setShowRoom(!showRoom)}><Layers size={16}/>{showRoom?'단일 Rack 보기':'룸 전체 보기'}</button><button className="outline" onClick={()=>setItems([])}><RotateCcw size={16}/>초기화</button></div>
 
         <div ref={rackRef}>
-          {showRoom ? <div className="roomGrid">{racks.map(r=><RackView key={r} rack={r} items={items.filter(x=>x.rack===r)} active={activeRack===r} onClickRack={()=>setActiveRack(r)} onDevice={setModal} rackStats={rackStats.find(s=>s.rack===r)} contractW={contractW}/>)}</div>
-          : <RackView rack={activeRack} items={currentItems} active onDevice={setModal} rackStats={rackStats.find(s=>s.rack===activeRack)} contractW={contractW} large/>}
+          {showRoom ? <div className="roomGrid">{racks.map(r=><RackView key={r.id} rack={r.name} zone={r.zone} color={r.color} items={items.filter(x=>x.rack===r.id)} active={activeRack===r.id} onClickRack={()=>setActiveRack(r.id)} onDevice={setModal} rackStats={rackStats.find(s=>s.rack===r.id)} contractW={contractW}/>)}</div>
+          : <RackView rack={rackNameOf(racks, activeRack)} zone={racks.find(r=>r.id===activeRack)?.zone} color={racks.find(r=>r.id===activeRack)?.color} items={currentItems} active onDevice={setModal} rackStats={rackStats.find(s=>s.rack===activeRack)} contractW={contractW} large/>}
         </div>
       </section>
 
       <aside>
-        <section className="panel"><h2>장비 검색 / 추가</h2><div className="search"><Search size={16}/><input placeholder="DL380, R740, FortiGate..." value={query} onChange={e=>setQuery(e.target.value)}/></div><div className="chips">{['전체','시스템','네트워크','보안','스토리지','기타'].map(t=><button key={t} className={filter===t?'active':''} onClick={()=>setFilter(t)}>{t}</button>)}</div><select value={selected?.id} onChange={e=>setSelectedId(e.target.value)}>{filtered.map(d=><option key={d.id} value={d.id}>{d.type} · {d.brand} {d.model} · {d.u}U · avg {d.avg}W</option>)}</select><div className="info"><b>{selected.brand} {selected.model}</b><br/>{selected.type} · {selected.u}U · 최소 {selected.min}W / 평균 {selected.avg}W / 최대 {selected.max}W</div><button className="full" onClick={addDevice}><Plus size={16}/>{activeRack}에 추가</button><button className="full outline" onClick={()=>fileRef.current.click()}><Upload size={16}/>CSV 장비 DB 업로드</button><input ref={fileRef} hidden type="file" accept=".csv" onChange={e=>importCsv(e.target.files?.[0])}/></section>
+        <section className="panel"><h2>장비 검색 / 추가</h2><div className="search"><Search size={16}/><input placeholder="DL380, R740, FortiGate..." value={query} onChange={e=>setQuery(e.target.value)}/></div><div className="chips">{['전체','시스템','네트워크','보안','스토리지','기타'].map(t=><button key={t} className={filter===t?'active':''} onClick={()=>setFilter(t)}>{t}</button>)}</div><select value={selected?.id} onChange={e=>setSelectedId(e.target.value)}>{filtered.map(d=><option key={d.id} value={d.id}>{d.type} · {d.brand} {d.model} · {d.u}U · avg {d.avg}W</option>)}</select><div className="info"><b>{selected.brand} {selected.model}</b><br/>{selected.type} · {selected.u}U · 최소 {selected.min}W / 평균 {selected.avg}W / 최대 {selected.max}W</div><button className="full" onClick={addDevice}><Plus size={16}/>{rackNameOf(racks, activeRack)}에 추가</button><button className="full outline" onClick={()=>fileRef.current.click()}><Upload size={16}/>CSV 장비 DB 업로드</button><input ref={fileRef} hidden type="file" accept=".csv" onChange={e=>importCsv(e.target.files?.[0])}/></section>
 
         <section className="panel ai"><h2><Sparkles size={17}/>전력 자동 추천 AI</h2><p className="hint">장비 조건을 넣으면 최소/평균/최대 전력을 추천합니다.</p><div className="formGrid"><label>장비구분<select value={ai.type} onChange={e=>setAi({...ai,type:e.target.value})}><option>시스템</option><option>네트워크</option><option>보안</option><option>스토리지</option><option>기타</option></select></label><label>U<input type="number" value={ai.u} onChange={e=>setAi({...ai,u:e.target.value})}/></label><label>PSU<input type="number" value={ai.psu} onChange={e=>setAi({...ai,psu:e.target.value})}/></label><label>CPU<input type="number" value={ai.cpu} onChange={e=>setAi({...ai,cpu:e.target.value})}/></label><label>GPU<input type="number" value={ai.gpu} onChange={e=>setAi({...ai,gpu:e.target.value})}/></label><label>Disk<input type="number" value={ai.disks} onChange={e=>setAi({...ai,disks:e.target.value})}/></label><label className="wide">부하율 {ai.workload}%<input type="range" min="1" max="100" value={ai.workload} onChange={e=>setAi({...ai,workload:e.target.value})}/></label></div><button className="full magic" onClick={runAi}><Wand2 size={16}/>추천 전력 계산</button><p className="aiResult">추천값: 최소 {custom.min}W / 평균 {custom.avg}W / 최대 {custom.max}W</p></section>
 
@@ -358,7 +439,7 @@ function App(){
 
         <section className="panel"><h2><GitBranch size={17}/>이중화 / 위험 분석</h2><div className="analysisList">{redundancy.length?redundancy.map(x=><div className={`analysis ${x.status==='OK'?'ok':'bad'}`} key={x.key}><b>{x.key}</b><span>{x.count}대 · {x.racks} · {x.status}</span></div>):<p className="empty">이중화 후보 없음</p>}{thermal.map(x=><div className="analysis warn" key={x}><b>공기순환</b><span>{x}</span></div>)}{pduWarnings.map(x=><div className="analysis bad" key={x}><b>PDU</b><span>{x}</span></div>)}</div></section>
 
-        <section className="panel"><h2>장비 목록</h2><div className="list">{[...items].sort((a,b)=>a.rack.localeCompare(b.rack)||b.startU-a.startU).map(x=><div className="listItem" key={x.uid} onClick={()=>setModal(x)}><div><b>{x.rack} · {x.startU}U · {x.brand} {x.model}</b><br/><span>{x.type} · {x.u}U · avg {x.avg}W · {x.powerMode}</span></div><button className="delete" onClick={(e)=>{e.stopPropagation();setItems(p=>p.filter(y=>y.uid!==x.uid))}}><Trash2 size={15}/></button></div>)}</div></section>
+        <section className="panel"><h2>장비 목록</h2><div className="list">{[...items].sort((a,b)=>a.rack.localeCompare(b.rack)||b.startU-a.startU).map(x=><div className="listItem" key={x.uid} onClick={()=>setModal(x)}><div><b>{rackNameOf(racks,x.rack)} · {x.startU}U · {x.brand} {x.model}</b><br/><span>{x.type} · {x.u}U · avg {x.avg}W · {x.powerMode}</span></div><button className="delete" onClick={(e)=>{e.stopPropagation();setItems(p=>p.filter(y=>y.uid!==x.uid))}}><Trash2 size={15}/></button></div>)}</div></section>
       </aside>
     </main>
 
@@ -366,10 +447,10 @@ function App(){
   </div>
 }
 
-function RackView({rack,items,onDevice,onClickRack,active,rackStats,large=false}){
-  const [txt,c,Icon]=risk((rackStats?.avg||0)/Math.max((rackStats?.contractW||1),1));
-  return <div className={`rackView ${active?'active':''} ${large?'large':''}`} onClick={onClickRack}>
-    <div className="rackHead"><b>{rack}</b><em className={c}><Icon size={13}/>{rackStats?.status||txt} · {kw(rackStats?.avg||0)}kW</em></div>
+function RackView({rack,zone,color,items,onDevice,onClickRack,active,rackStats,large=false}){
+  const [txt,c,Icon]=risk((rackStats?.avg||0)/Math.max(contractW||1,1));
+  return <div className={`rackView ${active?'active':''} ${large?'large':''}`} onClick={onClickRack} style={{'--rack-accent':color || '#1f4e78'}}>
+    <div className="rackHead"><b>{rack}<small>{zone || 'Zone'}</small></b><em className={c}><Icon size={13}/>{rackStats?.status||txt} · {kw(rackStats?.avg||0)}kW</em></div>
     <div className="rack">
       {Array.from({length:U_COUNT},(_,i)=>{const u=U_COUNT-i, it=items.find(x=>x.startU===u); return <div className="uRow" key={u}><div className="uNum">{u}U</div><div className="uSlot">{it&&<button className={`device ${typeClass(it.type)}${it.u===1?' oneU':''}`} style={{height:`${it.u*ROW_H-2}px`}} onClick={(e)=>{e.stopPropagation();onDevice(it)}}><DeviceArt kind={it.image} imageUrl={it.imageUrl} compact={it.u===1}/><div className="devText"><b>{it.brand} {it.model}</b><small>{it.type} · {it.u}U</small></div><div className="devPower">avg {it.avg}W<br/>max {it.max}W</div></button>}</div></div>})}
     </div>
