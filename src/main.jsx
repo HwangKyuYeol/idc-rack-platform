@@ -447,14 +447,36 @@ function App(){
   </div>
 }
 
-function RackView({rack,zone,color,items,onDevice,onClickRack,active,rackStats,large=false}){
+function RackView({rack, zone, color, items, onDevice, onClickRack, active, rackStats, contractW, large=false}){
   const [txt,c,Icon]=risk((rackStats?.avg||0)/Math.max(contractW||1,1));
-  return <div className={`rackView ${active?'active':''} ${large?'large':''}`} onClick={onClickRack} style={{'--rack-accent':color || '#1f4e78'}}>
-    <div className="rackHead"><b>{rack}<small>{zone || 'Zone'}</small></b><em className={c}><Icon size={13}/>{rackStats?.status||txt} · {kw(rackStats?.avg||0)}kW</em></div>
-    <div className="rack">
-      {Array.from({length:U_COUNT},(_,i)=>{const u=U_COUNT-i, it=items.find(x=>x.startU===u); return <div className="uRow" key={u}><div className="uNum">{u}U</div><div className="uSlot">{it&&<button className={`device ${typeClass(it.type)}${it.u===1?' oneU':''}`} style={{height:`${it.u*ROW_H-2}px`}} onClick={(e)=>{e.stopPropagation();onDevice(it)}}><DeviceArt kind={it.image} imageUrl={it.imageUrl} compact={it.u===1}/><div className="devText"><b>{it.brand} {it.model}</b><small>{it.type} · {it.u}U</small></div><div className="devPower">avg {it.avg}W<br/>max {it.max}W</div></button>}</div></div>})}
+  return (
+    <div className={`rackView ${active?'active':''} ${large?'large':''}`} onClick={onClickRack} style={{'--rack-accent':color || '#1f4e78'}}>
+      <div className="rackHead">
+        <b>{rack}<small>{zone || 'Zone'}</small></b>
+        <em className={c}><Icon size={13}/>{rackStats?.status||txt} · {kw(rackStats?.avg||0)}kW</em>
+      </div>
+      <div className="rack">
+        {Array.from({length:U_COUNT},(_,i)=>{
+          const u=U_COUNT-i;
+          const it=items.find(x=>x.startU===u);
+          return (
+            <div className="uRow" key={u}>
+              <div className="uNum">{u}U</div>
+              <div className="uSlot">
+                {it && (
+                  <button className={`device ${typeClass(it.type)}${it.u===1?' oneU':''}`} style={{height:`${it.u*ROW_H-2}px`}} onClick={(e)=>{e.stopPropagation();onDevice(it)}}>
+                    <DeviceArt kind={it.image} imageUrl={it.imageUrl} compact={it.u===1}/>
+                    <div className="devText"><b>{it.brand} {it.model}</b><small>{it.type} · {it.u}U</small></div>
+                    <div className="devPower">avg {it.avg}W<br/>max {it.max}W</div>
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
-  </div>
+  );
 }
 
 createRoot(document.getElementById('root')).render(<App/>);
