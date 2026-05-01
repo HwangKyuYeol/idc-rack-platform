@@ -236,26 +236,59 @@ function App(){
   }
 
   function autoPlaceAll(){
+    if(items.length === 0){
+      alert('자동 배치할 장비가 없습니다.');
+      return;
+    }
+
     const sorted=[...items].sort((a,b)=>{
       const order={'네트워크':1,'보안':2,'스토리지':3,'시스템':4,'기타':5};
       return (order[a.type]||9)-(order[b.type]||9) || b.max-a.max || b.u-a.u;
     });
+
     const next=[];
-    sorted.forEach((dev,idx)=>{
-      const targetRack = racks[idx % racks.length].id;
-      const tempItems = [...next];
-      let start=null, bestRack=targetRack;
-      for(const r of racks){
-        const arr=tempItems.filter(x=>x.rack===r);
-        const occ=new Set();
-        arr.forEach(x=>{for(let i=0;i<x.u;i++)occ.add(x.startU-i); if(x.gap)occ.add(x.startU-x.u);});
-        let candidate=(dev.type==='시스템'||dev.type==='스토리지')?24:41;
-        while(candidate>0 && !canPlace(dev,candidate,occ)) candidate--;
-        if(candidate-dev.u+1>=1){start=candidate; bestRack=r; break;}
+
+    sorted.forEach((dev)=>{
+      let placed = false;
+
+      // 전력 사용률이 낮은 Rack부터 우선 배치
+      const rackOrder = [...racks].sort((ra, rb)=>{
+        const aPower = next.filter(x=>x.rack===ra.id).reduce((sum,x)=>sum+x.avg,0);
+        const bPower = next.filter(x=>x.rack===rb.id).reduce((sum,x)=>sum+x.avg,0);
+        return aPower - bPower;
+      });
+
+      for(const rackObj of rackOrder){
+        const rackId = rackObj.id;
+        const arr = next.filter(x=>x.rack===rackId);
+        const occ = new Set();
+
+        arr.forEach(x=>{
+          for(let i=0;i<x.u;i++) occ.add(x.startU-i);
+          if(x.gap) occ.add(x.startU-x.u);
+        });
+
+        let candidate = (dev.type==='시스템'||dev.type==='스토리지') ? 24 : 41;
+
+        while(candidate>0 && !canPlace(dev,candidate,occ)){
+          candidate--;
+        }
+
+        if(candidate-dev.u+1>=1){
+          next.push({...dev, rack:rackId, startU:candidate});
+          placed = true;
+          break;
+        }
       }
-      next.push({...dev,rack:bestRack,startU:start||dev.startU});
+
+      // 공간이 없으면 기존 위치 유지
+      if(!placed){
+        next.push(dev);
+      }
     });
+
     setItems(next);
+    alert('전체 Rack 자동 최적 배치가 완료되었습니다.');
   }
 
   function moveDevice(uid,rack){
