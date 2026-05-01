@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://idc-rack-platform.vercel.app/sitemap.xml
