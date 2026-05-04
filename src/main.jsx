@@ -582,7 +582,7 @@ function App(){
 
 
     <footer className="footer">
-      <div className="footerContent" style="style="display: none;">
+      <div className="footerContent" style="display: none;">
         <p>IDC Rack Power Platform by <strong>Hwang Kyu Yeol</strong></p>
         <p>문의사항: <a href="mailto:kyhwang@astglobal.co.kr">kyhwang@astglobal.co.kr</a></p>
       </div>
