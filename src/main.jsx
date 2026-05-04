@@ -292,6 +292,51 @@ function App(){
     alert('전체 Rack 자동 최적 배치가 완료되었습니다.');
   }
 
+  function moveDeviceToSlot(uid, rackId, targetU){
+    const dev = items.find(x=>x.uid===uid);
+    if(!dev) return;
+
+    const others = items.filter(x=>x.uid!==uid);
+    const arr = others.filter(x=>x.rack===rackId);
+    const occ = new Set();
+
+    arr.forEach(x=>{
+      for(let i=0;i<x.u;i++) occ.add(x.startU-i);
+      if(x.gap) occ.add(x.startU-x.u);
+    });
+
+    const canPlaceAt = (start)=>{
+      for(let i=0;i<dev.u;i++){
+        if(occ.has(start-i) || start-i<1) return false;
+      }
+      if(dev.gap && occ.has(start-dev.u)) return false;
+      return true;
+    };
+
+    let start = Number(targetU);
+
+    // 먼저 사용자가 놓은 U에 정확히 배치 시도
+    if(!canPlaceAt(start)){
+      // 안 되면 가장 가까운 빈 위치를 위/아래로 탐색
+      let found = null;
+      for(let offset=1; offset<=U_COUNT; offset++){
+        const down = start - offset;
+        const up = start + offset;
+        if(down>=1 && canPlaceAt(down)){ found = down; break; }
+        if(up<=U_COUNT && canPlaceAt(up)){ found = up; break; }
+      }
+      start = found;
+    }
+
+    if(!start || start-dev.u+1<1){
+      alert('해당 위치에는 장비를 배치할 수 없습니다.');
+      return;
+    }
+
+    setItems([...others, {...dev, rack:rackId, startU:start}]);
+    setActiveRack(rackId);
+  }
+
   function moveDevice(uid,rack){
     const dev=items.find(x=>x.uid===uid);
     if(!dev) return;
@@ -480,8 +525,8 @@ function App(){
         <div className="rackToolbar"><button className="outline" onClick={autoPlaceAll}><MoveDown size={16}/>전체 Rack 자동 최적 배치 AI</button><button className="outline" onClick={()=>setShowRoom(!showRoom)}><Layers size={16}/>{showRoom?'단일 Rack 보기':'룸 전체 보기'}</button><button className="outline" onClick={()=>setItems([])}><RotateCcw size={16}/>초기화</button></div>
 
         <div ref={rackRef}>
-          {showRoom ? <div className="roomGrid">{racks.map(r=><RackView key={r.id} rack={r.name} zone={r.zone} color={r.color} items={items.filter(x=>x.rack===r.id)} active={activeRack===r.id} onClickRack={()=>setActiveRack(r.id)} onDevice={setModal} rackStats={rackStats.find(s=>s.rack===r.id)} contractW={contractW}/>)}</div>
-          : <RackView rack={rackNameOf(racks, activeRack)} zone={racks.find(r=>r.id===activeRack)?.zone} color={racks.find(r=>r.id===activeRack)?.color} items={currentItems} active onDevice={setModal} rackStats={rackStats.find(s=>s.rack===activeRack)} contractW={contractW} large/>}
+          {showRoom ? <div className="roomGrid">{racks.map(r=><RackView key={r.id} rack={r.name} zone={r.zone} color={r.color} items={items.filter(x=>x.rack===r.id)} active={activeRack===r.id} onClickRack={()=>setActiveRack(r.id)} onDevice={setModal} rackStats={rackStats.find(s=>s.rack===r.id)} contractW={contractW} rackId={r.id} onDropDevice={moveDeviceToSlot}/>)}</div>
+          : <RackView rack={rackNameOf(racks, activeRack)} zone={racks.find(r=>r.id===activeRack)?.zone} color={racks.find(r=>r.id===activeRack)?.color} items={currentItems} active onDevice={setModal} rackStats={rackStats.find(s=>s.rack===activeRack)} contractW={contractW} rackId={activeRack} onDropDevice={moveDeviceToSlot} large/>}
         </div>
       </section>
 
@@ -535,11 +580,19 @@ function App(){
       </aside>
     </main>
 
+
+    <footer className="footer">
+      <div className="footerContent">
+        <p>IDC Rack Power Platform by <strong>Hwang Kyu Yeol</strong></p>
+        <p>문의사항: <a href="mailto:kyhwang@astglobal.co.kr">kyhwang@astglobal.co.kr</a></p>
+      </div>
+    </footer>
+
     <DeviceModal device={modal} onClose={()=>setModal(null)} onMove={moveDevice} racks={racks}/>
   </div>
 }
 
-function RackView({rack, zone, color, items, onDevice, onClickRack, active, rackStats, contractW, large=false}){
+function RackView({rack, zone, color, items, onDevice, onClickRack, active, rackStats, contractW, rackId, onDropDevice, large=false}){
   const [txt,c,Icon]=risk((rackStats?.avg||0)/Math.max(contractW||1,1));
   return (
     <div className={`rackView ${active?'active':''} ${large?'large':''}`} onClick={onClickRack} style={{'--rack-accent':color || '#1f4e78'}}>
@@ -552,11 +605,32 @@ function RackView({rack, zone, color, items, onDevice, onClickRack, active, rack
           const u=U_COUNT-i;
           const it=items.find(x=>x.startU===u);
           return (
-            <div className="uRow" key={u}>
+            <div
+              className="uRow"
+              key={u}
+              onDragOver={(e)=>e.preventDefault()}
+              onDrop={(e)=>{
+                e.preventDefault();
+                e.stopPropagation();
+                const uid = e.dataTransfer.getData('text/plain');
+                if(uid && onDropDevice) onDropDevice(uid, rackId, u);
+              }}
+            >
               <div className="uNum">{u}U</div>
               <div className="uSlot">
                 {it && (
-                  <button className={`device ${typeClass(it.type)}${it.u===1?' oneU':''}`} style={{height:`${it.u*ROW_H-2}px`}} onClick={(e)=>{e.stopPropagation();onDevice(it)}}>
+                  <button
+                    draggable
+                    title="드래그해서 다른 U 또는 다른 Rack으로 이동"
+                    className={`device ${typeClass(it.type)}${it.u===1?' oneU':''}`}
+                    style={{height:`${it.u*ROW_H-2}px`}}
+                    onDragStart={(e)=>{
+                      e.stopPropagation();
+                      e.dataTransfer.setData('text/plain', it.uid);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onClick={(e)=>{e.stopPropagation();onDevice(it)}}
+                  >
                     <DeviceArt kind={it.image} imageUrl={it.imageUrl} compact={it.u===1}/>
                     <div className="devText"><b>{it.brand} {it.model}</b><small>{it.type} · {it.u}U</small></div>
                     <div className="devPower">avg {it.avg}W<br/>max {it.max}W</div>
