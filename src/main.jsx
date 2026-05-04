@@ -157,6 +157,7 @@ function App(){
   const [gap,setGap]=useState(true), [dual,setDual]=useState(true), [modal,setModal]=useState(null), [showRoom,setShowRoom]=useState(true);
   const [ai,setAi]=useState({type:'시스템',u:2,psu:2,cpu:2,gpu:0,disks:8,workload:55});
   const [custom,setCustom]=useState({min:180,avg:350,max:700});
+  const [customForm,setCustomForm]=useState({type:'시스템', u:2, image:'server'});
 
   const filtered=useMemo(()=>catalog.filter(d=>(filter==='전체'||d.type===filter)&&(!query||`${d.brand} ${d.model} ${d.type}`.toLowerCase().includes(query.toLowerCase()))),[catalog,query,filter]);
   const selected=useMemo(()=>catalog.find(d=>d.id===selectedId)||filtered[0]||catalog[0],[catalog,selectedId,filtered]);
@@ -384,6 +385,29 @@ function App(){
 
   function runAi(){ setCustom(recommendPower(ai)); }
 
+  function applyAutoPower(type = customForm.type, u = customForm.u){
+    setCustom(getAutoPower(type, u));
+  }
+
+  function changeCustomType(type){
+    const imageMap = {
+      '시스템':'server',
+      '네트워크':'switch',
+      '보안':'firewall',
+      '스토리지':'storage',
+      '기타':'server'
+    };
+    const nextForm = { ...customForm, type, image:imageMap[type] || 'server' };
+    setCustomForm(nextForm);
+    setCustom(getAutoPower(type, nextForm.u));
+  }
+
+  function changeCustomU(u){
+    const nextForm = { ...customForm, u };
+    setCustomForm(nextForm);
+    setCustom(getAutoPower(nextForm.type, u));
+  }
+
   function saveProject(){
     const data={racks,items,catalog,contractKw,voltage,pduAmp};
     const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -466,7 +490,42 @@ function App(){
 
         <section className="panel ai"><h2><Sparkles size={17}/>전력 자동 추천 AI</h2><p className="hint">장비 조건을 넣으면 최소/평균/최대 전력을 추천합니다.</p><div className="formGrid"><label>장비구분<select value={ai.type} onChange={e=>setAi({...ai,type:e.target.value})}><option>시스템</option><option>네트워크</option><option>보안</option><option>스토리지</option><option>기타</option></select></label><label>U<input type="number" value={ai.u} onChange={e=>setAi({...ai,u:e.target.value})}/></label><label>PSU<input type="number" value={ai.psu} onChange={e=>setAi({...ai,psu:e.target.value})}/></label><label>CPU<input type="number" value={ai.cpu} onChange={e=>setAi({...ai,cpu:e.target.value})}/></label><label>GPU<input type="number" value={ai.gpu} onChange={e=>setAi({...ai,gpu:e.target.value})}/></label><label>Disk<input type="number" value={ai.disks} onChange={e=>setAi({...ai,disks:e.target.value})}/></label><label className="wide">부하율 {ai.workload}%<input type="range" min="1" max="100" value={ai.workload} onChange={e=>setAi({...ai,workload:e.target.value})}/></label></div><button className="full magic" onClick={runAi}><Wand2 size={16}/>추천 전력 계산</button><p className="aiResult">추천값: 최소 {custom.min}W / 평균 {custom.avg}W / 최대 {custom.max}W</p></section>
 
-        <section className="panel"><h2><Camera size={17}/>직접 장비 DB 추가</h2><form className="formGrid" onSubmit={addCustom}><input name="brand" placeholder="브랜드"/><input name="model" placeholder="모델명"/><select name="type"><option>시스템</option><option>네트워크</option><option>보안</option><option>스토리지</option><option>기타</option></select><input name="u" type="number" defaultValue={ai.u}/><input name="min" type="number" value={custom.min} onChange={e=>setCustom({...custom,min:+e.target.value})}/><input name="avg" type="number" value={custom.avg} onChange={e=>setCustom({...custom,avg:+e.target.value})}/><input name="max" type="number" value={custom.max} onChange={e=>setCustom({...custom,max:+e.target.value})}/><select name="image"><option value="server">서버</option><option value="switch">스위치</option><option value="firewall">방화벽</option><option value="security">보안</option><option value="storage">스토리지</option></select><input className="wide" name="imageUrl" placeholder="실제 장비 사진 URL (선택)"/><button className="full">DB에 추가</button></form></section>
+        <section className="panel"><h2><Camera size={17}/>직접 장비 DB 추가</h2>
+          <p className="hint">장비 구분과 U 크기를 선택하면 최소/평균/최대 전력이 자동으로 채워집니다.</p>
+          <form className="formGrid" onSubmit={addCustom}>
+            <input name="brand" placeholder="브랜드"/>
+            <input name="model" placeholder="모델명"/>
+            <label>장비 구분
+              <select name="type" value={customForm.type} onChange={e=>changeCustomType(e.target.value)}>
+                <option>시스템</option><option>네트워크</option><option>보안</option><option>스토리지</option><option>기타</option>
+              </select>
+            </label>
+            <label>U 크기
+              <input name="u" type="number" min="1" value={customForm.u} onChange={e=>changeCustomU(e.target.value)}/>
+            </label>
+            <label>최소 W
+              <input name="min" type="number" value={custom.min} onChange={e=>setCustom({...custom,min:+e.target.value})}/>
+            </label>
+            <label>평균 W
+              <input name="avg" type="number" value={custom.avg} onChange={e=>setCustom({...custom,avg:+e.target.value})}/>
+            </label>
+            <label>최대 W
+              <input name="max" type="number" value={custom.max} onChange={e=>setCustom({...custom,max:+e.target.value})}/>
+            </label>
+            <label>장비 이미지 타입
+              <select name="image" value={customForm.image} onChange={e=>setCustomForm({...customForm,image:e.target.value})}>
+                <option value="server">서버</option><option value="switch">스위치</option><option value="firewall">방화벽</option><option value="security">보안</option><option value="storage">스토리지</option>
+              </select>
+            </label>
+            <button type="button" className="full outline" onClick={()=>applyAutoPower()}><Wand2 size={16}/>전력값 다시 자동채우기</button>
+            <input className="wide" name="imageUrl" placeholder="실제 장비 사진 URL (선택)"/>
+            <div className="powerGuide wide">
+              <b>입력 기준</b>
+              <span>최소: 아이들 상태 · 평균: 일반 운영 · 최대: 최대 부하/설계 기준</span>
+            </div>
+            <button className="full">DB에 추가</button>
+          </form>
+        </section>
 
         <ReportPanel rackStats={rackStats} redundancy={redundancy} thermal={thermal} pduWarnings={pduWarnings}/>
 
@@ -475,14 +534,6 @@ function App(){
         <section className="panel"><h2>장비 목록</h2><div className="list">{[...items].sort((a,b)=>a.rack.localeCompare(b.rack)||b.startU-a.startU).map(x=><div className="listItem" key={x.uid} onClick={()=>setModal(x)}><div><b>{rackNameOf(racks,x.rack)} · {x.startU}U · {x.brand} {x.model}</b><br/><span>{x.type} · {x.u}U · avg {x.avg}W · {x.powerMode}</span></div><button className="delete" onClick={(e)=>{e.stopPropagation();setItems(p=>p.filter(y=>y.uid!==x.uid))}}><Trash2 size={15}/></button></div>)}</div></section>
       </aside>
     </main>
-
-
-    <footer className="footer">
-      <div className="footerContent">
-        <p>IDC Rack Power Platform by <strong>Hwang Kyu Yeol</strong></p>
-        <p>문의사항: <a href="mailto:kyhwang@astglobal.co.kr">kyhwang@astglobal.co.kr</a></p>
-      </div>
-    </footer>
 
     <DeviceModal device={modal} onClose={()=>setModal(null)} onMove={moveDevice} racks={racks}/>
   </div>
